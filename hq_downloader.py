@@ -3,142 +3,133 @@ import os
 import subprocess
 import time
 import shutil
+import gc  # เพิ่มตัวจัดการหน่วยความจำ (Garbage Collector)
 
 # ตั้งค่าหน้าเว็บ
-st.set_page_config(page_title="Video Optimizer Ultimate", page_icon="🎥", layout="centered")
-st.title("🎥 Smart Export: Ultimate Edition")
-st.write("เครื่องมือแปลงไฟล์ครอบจักรวาล: ส่งไลน์ชัด / คลิปสั้น 4K / ทำงานไว")
+st.set_page_config(page_title="Stable Video Tool", page_icon="🛡️", layout="centered")
+st.title("🛡️ Smart Export: Stable Edition")
+st.write("เวอร์ชั่นเสถียร: มีระบบล้างไฟล์ขยะและคืนแรมอัตโนมัติ")
 
-# --- 1. ระบบตรวจเช็คความพร้อม (System Check) ---
-st.write("---")
-# เช็ค FFmpeg ก่อนเริ่ม
+# --- 0. ฟังก์ชันทำความสะอาดระบบ (Auto-Cleanup) ---
+def cleanup_system():
+    # ลบไฟล์ขยะที่อาจค้างจากการรันครั้งก่อน
+    files = os.listdir()
+    count = 0
+    for f in files:
+        if f.startswith("temp_") or f.startswith("out_") or f.startswith("Smart_"):
+            try:
+                os.remove(f)
+                count += 1
+            except:
+                pass
+    if count > 0:
+        print(f"🧹 ล้างไฟล์ขยะไป {count} ไฟล์")
+
+# เรียกใช้งานทันทีที่เปิดแอป
+cleanup_system()
+
+# --- 1. เช็ค FFmpeg ---
 if not shutil.which("ffmpeg"):
-    st.error("❌ ไม่พบโปรแกรม FFmpeg! (กรุณาเช็คไฟล์ packages.txt และกด Reboot App)")
+    st.error("❌ ไม่พบ FFmpeg! (กรุณา Reboot App)")
     st.stop()
 
-# --- 2. ส่วนอัปโหลด ---
-uploaded_file = st.file_uploader("📂 เลือกไฟล์วิดีโอ", type=["mp4", "mov", "avi"])
+# --- 2. อัปโหลดไฟล์ ---
+# จำกัดขนาดไฟล์ไม่เกิน 200MB เพื่อป้องกัน Server น็อค
+uploaded_file = st.file_uploader("📂 อัปโหลดไฟล์วิดีโอ (แนะนำ < 200MB)", type=["mp4", "mov", "avi"])
 
-# --- 3. ส่วนเลือกสูตร (เพิ่มโหมด 4K Short ให้แล้วครับ) ---
+if uploaded_file and uploaded_file.size > 250 * 1024 * 1024:
+    st.warning("⚠️ ไฟล์ใหญ่เกิน 250MB อาจทำให้ Server ค้างได้ครับ แนะนำให้ตัดแบ่งเป็นไฟล์ย่อย")
+
+# --- 3. เลือกโหมด ---
 st.write("---")
-st.subheader("🎯 เลือกโหมดการใช้งาน")
-
 mode = st.radio(
-    "เลือกสูตรที่ต้องการ:",
+    "เลือกโหมด:",
     (
-        "💬 1. ส่งไลน์/Messenger (สูตรลับ: ชัดแต่ไฟล์เล็ก)",
-        "⚡ 2. God Speed (แปลงไวสุดขีด สำหรับรีบใช้)",
-        "🎵 3. TikTok / Reels (เน้นลื่น 60fps)",
-        "🟥 4. YouTube (4K Upscale มาตรฐาน)",
-        "✨ 5. คลิปสั้น 4K (สูตรใหม่: ชัดตาแตกสำหรับ Short)" 
+        "💬 1. ส่งไลน์ (ประหยัดแรม)",
+        "⚡ 2. God Speed (แปลงไว)",
+        "🎵 3. TikTok (60fps)",
+        "🟥 4. YouTube (4K แนวนอน)",
+        "📱 5. คลิปสั้น 4K (Shorts/Reels)" 
     )
 )
 
-# --- 4. ฟังก์ชัน FFmpeg (รวมทุกสูตร) ---
-def process_video_ultimate(input_file, output_file, platform_mode):
-    # สร้างคำสั่งเริ่มต้น
+# --- 4. ฟังก์ชันประมวลผล ---
+def process_video_stable(input_file, output_file, platform_mode):
     cmd = ['ffmpeg', '-i', input_file]
-    
-    # ตั้งค่า Codec พื้นฐาน
     cmd.extend(['-c:v', 'libx264', '-profile:v', 'high'])
-    
-    # ตัวแปรสำหรับ Filter
     filters = []
-    
-    # --- LOGIC การเลือกโหมด ---
+
+    # Logic การเลือกโหมด
     if "1. ส่งไลน์" in platform_mode:
-        # สูตรไลน์: Medium preset + Bitrate จำกัด
-        cmd.extend(['-preset', 'medium'])
+        cmd.extend(['-preset', 'veryfast']) # ใช้ veryfast เพื่อประหยัด CPU
         cmd.extend(['-b:v', '3500k', '-maxrate', '4000k', '-bufsize', '8000k'])
         filters.append('scale=1080:-2')
         
     elif "2. God Speed" in platform_mode:
-        # สูตรไว: Ultrafast preset
-        cmd.extend(['-preset', 'ultrafast', '-tune', 'zerolatency'])
-        cmd.extend(['-crf', '25']) 
+        cmd.extend(['-preset', 'ultrafast', '-tune', 'zerolatency', '-crf', '25'])
         
     elif "3. TikTok" in platform_mode:
-        # สูตร TikTok: Faster + 60fps
-        cmd.extend(['-preset', 'faster'])
-        cmd.extend(['-b:v', '15M', '-maxrate', '15M', '-bufsize', '30M'])
+        cmd.extend(['-preset', 'superfast']) # ลดความแรงลงนิดนึงกันเครื่องน็อค
+        cmd.extend(['-b:v', '10M', '-maxrate', '10M', '-bufsize', '20M'])
         filters.append('scale=1080:-2')
         filters.append('fps=60')
         
     elif "4. YouTube" in platform_mode:
-        # สูตร YouTube: 4K มาตรฐาน
-        cmd.extend(['-preset', 'faster'])
-        cmd.extend(['-crf', '20'])
-        filters.append('scale=3840:2160:flags=lanczos')
+        cmd.extend(['-preset', 'superfast', '-crf', '23']) # ลด load ลงเพื่อให้ render ผ่าน
+        filters.append('scale=3840:2160:flags=bicubic') # ใช้ bicubic กินแรงน้อยกว่า lanczos
 
     elif "5. คลิปสั้น 4K" in platform_mode:
-        # สูตรใหม่: คลิปสั้น 4K (เน้นคุณภาพมากกว่าความเร็ว)
-        # ใช้ Medium เพื่อให้ภาพเนียนกว่า Faster
-        cmd.extend(['-preset', 'medium'])
-        # CRF 18 คือชัดมาก (ต่ำกว่านี้ไฟล์จะใหญ่เกินจำเป็น)
-        cmd.extend(['-crf', '18'])
-        # Upscale เป็น 4K ด้วย Algorithm ที่ดีที่สุด (Lanczos)
-        filters.append('scale=3840:2160:flags=lanczos')
-        # บังคับ 60fps เพื่อความลื่นไหลแบบงานพรีเมียม
+        cmd.extend(['-preset', 'superfast', '-crf', '20'])
+        filters.append('scale=-2:2160:flags=bicubic') 
         filters.append('fps=60')
 
-    # --- จบ LOGIC ---
-
-    # ใส่ Filter (ถ้ามี)
     if filters:
         cmd.extend(['-vf', ','.join(filters)])
         
-    # ตั้งค่าเสียงและ Output สุดท้าย
     cmd.extend(['-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', '-pix_fmt', 'yuv420p', '-y', output_file])
     
-    # รันคำสั่ง
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = process.communicate()
     
     if process.returncode != 0:
         raise Exception(f"FFmpeg Error: {stderr.decode()}")
 
-# --- 5. ปุ่มกดสั่งงาน ---
+# --- 5. ปุ่มทำงาน ---
 if uploaded_file:
-    file_size_mb = uploaded_file.size / (1024 * 1024)
-    st.info(f"📹 ต้นฉบับ: {uploaded_file.name} ({file_size_mb:.2f} MB)")
-    
-    if st.button("🚀 เริ่มแปลงไฟล์", use_container_width=True):
+    if st.button("🚀 เริ่มแปลงไฟล์"):
+        # Clear Memory ก่อนเริ่มงาน
+        gc.collect()
         
-        input_path = f"temp_in_{uploaded_file.name}"
-        output_filename = f"Smart_{mode.split(' ')[1]}_{uploaded_file.name}"
-        output_path = f"output_{output_filename}"
+        temp_in = f"temp_{int(time.time())}.mp4"
+        output_name = f"Smart_{int(time.time())}.mp4"
+        output_path = f"out_{output_name}"
         
-        # Save Input
-        with open(input_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-
         try:
-            with st.spinner('⏳ กำลังประมวลผล... (โหมด 4K จะใช้เวลานานหน่อยนะครับ)'):
-                start_time = time.time()
-                
-                # เรียกฟังก์ชันทำงาน
-                process_video_ultimate(input_path, output_path, mode)
-                
-                end_time = time.time()
-                
-                st.success(f"✅ เสร็จเรียบร้อย! (ใช้เวลา {end_time - start_time:.2f} วินาที)")
+            with open(temp_in, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            
+            with st.spinner('⏳ กำลังประมวลผล... (ห้ามปิดจอนะครับ)'):
+                process_video_stable(temp_in, output_path, mode)
                 
                 if os.path.exists(output_path):
-                    new_size = os.path.getsize(output_path) / (1024 * 1024)
-                    st.caption(f"📦 ขนาดไฟล์ใหม่: {new_size:.2f} MB")
-                    
+                    st.success("✅ สำเร็จ!")
                     with open(output_path, "rb") as f:
-                        st.download_button(
-                            label="📥 ดาวน์โหลดไฟล์",
-                            data=f,
-                            file_name=output_filename,
-                            mime="video/mp4",
-                            use_container_width=True
-                        )
-                    # ลบไฟล์ทิ้ง
-                    os.remove(output_path)
+                        st.download_button("📥 ดาวน์โหลด", f, file_name=output_name)
                     
+                    # ลบไฟล์ Output ทันทีหลังโหลดเสร็จ (Clean up logic ย้ายไปทำตอนเริ่ม app แทนเพื่อความชัวร์)
+                else:
+                    st.error("❌ ไฟล์ปลายทางไม่ถูกสร้าง (อาจเกิดจาก RAM หมด)")
+
         except Exception as e:
             st.error(f"❌ เกิดข้อผิดพลาด: {e}")
+            
         finally:
-            if os.path.exists(input_path): os.remove(input_path)
+            # Cleanup ทันทีที่จบการทำงาน
+            if os.path.exists(temp_in): 
+                os.remove(temp_in)
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            
+            # บังคับคืนแรม
+            del uploaded_file
+            gc.collect()
