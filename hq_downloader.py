@@ -1,161 +1,144 @@
 import streamlit as st
-import yt_dlp
 import os
+import subprocess
 import time
+import shutil
 
 # ตั้งค่าหน้าเว็บ
-st.set_page_config(page_title="Universal Downloader", page_icon="🌎")
-st.title("🌎 ระบบดูดคลิปจักรวาล (All-in-One)")
-st.write("เลือกรูปแบบที่ต้องการได้เลยครับ รองรับทั้งมือถือและ PC")
+st.set_page_config(page_title="Video Optimizer Ultimate", page_icon="🎥", layout="centered")
+st.title("🎥 Smart Export: Ultimate Edition")
+st.write("เครื่องมือแปลงไฟล์ครอบจักรวาล: ส่งไลน์ชัด / คลิปสั้น 4K / ทำงานไว")
 
-# 1. รับลิงก์
-url = st.text_input("🔗 วางลิงก์คลิปที่นี่:", placeholder="https://...")
-
-# 2. ตัวเลือกการดาวน์โหลด (หัวใจสำคัญ)
+# --- 1. ระบบตรวจเช็คความพร้อม (System Check) ---
 st.write("---")
-st.subheader("⚙️ ตั้งค่าก่อนโหลด")
+# เช็ค FFmpeg ก่อนเริ่ม
+if not shutil.which("ffmpeg"):
+    st.error("❌ ไม่พบโปรแกรม FFmpeg! (กรุณาเช็คไฟล์ packages.txt และกด Reboot App)")
+    st.stop()
 
-col1, col2 = st.columns(2)
+# --- 2. ส่วนอัปโหลด ---
+uploaded_file = st.file_uploader("📂 เลือกไฟล์วิดีโอ", type=["mp4", "mov", "avi"])
 
-with col1:
-    download_type = st.radio(
-        "เลือกประเภทไฟล์:",
-        ("🎬 วิดีโอ (Video)", "🎵 เพลง/เสียงอย่างเดียว (MP3)")
+# --- 3. ส่วนเลือกสูตร (เพิ่มโหมด 4K Short ให้แล้วครับ) ---
+st.write("---")
+st.subheader("🎯 เลือกโหมดการใช้งาน")
+
+mode = st.radio(
+    "เลือกสูตรที่ต้องการ:",
+    (
+        "💬 1. ส่งไลน์/Messenger (สูตรลับ: ชัดแต่ไฟล์เล็ก)",
+        "⚡ 2. God Speed (แปลงไวสุดขีด สำหรับรีบใช้)",
+        "🎵 3. TikTok / Reels (เน้นลื่น 60fps)",
+        "🟥 4. YouTube (4K Upscale มาตรฐาน)",
+        "✨ 5. คลิปสั้น 4K (สูตรใหม่: ชัดตาแตกสำหรับ Short)" 
     )
+)
 
-with col2:
-    if download_type == "🎬 วิดีโอ (Video)":
-        quality_mode = st.selectbox(
-            "เลือกความคมชัด:",
-            (
-                "📱 โหมดมือถือ/ทั่วไป (1080p - H.264) [แนะนำ! เปิดได้ชัวร์]",
-                "💎 โหมดชัดสูงสุด (4K/2K) [ภาพสวยสุด แต่อาจต้องใช้ VLC เปิด]",
-                "📉 โหมดประหยัดเน็ต (480p/360p)"
-            )
-        )
-    else:
-        st.info("🎵 ระบบจะแปลงเป็น MP3 คุณภาพสูงให้ครับ")
-        quality_mode = "Audio"
-
-# ส่วนอัปโหลด Cookies
-with st.expander("🔐 ตั้งค่า Cookies (สำหรับคลิปส่วนตัว/Member)"):
-    uploaded_cookies = st.file_uploader("อัปโหลดไฟล์ cookies.txt", type=['txt'])
-
-# --- ฟังก์ชันดาวน์โหลดระดับเทพ ---
-def download_master(link, type_mode, q_mode, cookie_file):
-    output_folder = "downloads_master"
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
+# --- 4. ฟังก์ชัน FFmpeg (รวมทุกสูตร) ---
+def process_video_ultimate(input_file, output_file, platform_mode):
+    # สร้างคำสั่งเริ่มต้น
+    cmd = ['ffmpeg', '-i', input_file]
+    
+    # ตั้งค่า Codec พื้นฐาน
+    cmd.extend(['-c:v', 'libx264', '-profile:v', 'high'])
+    
+    # ตัวแปรสำหรับ Filter
+    filters = []
+    
+    # --- LOGIC การเลือกโหมด ---
+    if "1. ส่งไลน์" in platform_mode:
+        # สูตรไลน์: Medium preset + Bitrate จำกัด
+        cmd.extend(['-preset', 'medium'])
+        cmd.extend(['-b:v', '3500k', '-maxrate', '4000k', '-bufsize', '8000k'])
+        filters.append('scale=1080:-2')
         
-    # ตั้งค่าพื้นฐาน
-    ydl_opts = {
-        'outtmpl': f'{output_folder}/%(title)s.%(ext)s',
-        'noplaylist': True,
-        'restrictfilenames': True,
-    }
-
-    # --- Logic การเลือกสูตร ---
-    if type_mode == "🎵 เพลง/เสียงอย่างเดียว (MP3)":
-        # สูตรโหลดเพลง: ดึงเฉพาะเสียงแล้วแปลงเป็น mp3
-        ydl_opts.update({
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-        })
-        target_ext = '.mp3'
+    elif "2. God Speed" in platform_mode:
+        # สูตรไว: Ultrafast preset
+        cmd.extend(['-preset', 'ultrafast', '-tune', 'zerolatency'])
+        cmd.extend(['-crf', '25']) 
         
-    elif "📱 โหมดมือถือ" in q_mode:
-        # สูตรมือถือ: บังคับ H.264 (avc) + MP4 (สำคัญมากสำหรับ iPhone)
-        ydl_opts.update({
-            'format': 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'merge_output_format': 'mp4'
-        })
-        target_ext = '.mp4'
-
-    elif "💎 โหมดชัดสูงสุด" in q_mode:
-        # สูตรชัดสุด: ไม่สน Codec ขอชัดไว้ก่อน (เหมาะกับ PC + VLC)
-        ydl_opts.update({
-            'format': 'bestvideo+bestaudio/best',
-            'merge_output_format': 'mp4'
-        })
-        target_ext = '.mp4'
+    elif "3. TikTok" in platform_mode:
+        # สูตร TikTok: Faster + 60fps
+        cmd.extend(['-preset', 'faster'])
+        cmd.extend(['-b:v', '15M', '-maxrate', '15M', '-bufsize', '30M'])
+        filters.append('scale=1080:-2')
+        filters.append('fps=60')
         
-    elif "📉 โหมดประหยัด" in q_mode:
-        # สูตรประหยัด: จำกัดความสูงภาพไม่เกิน 480p
-        ydl_opts.update({
-            'format': 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]',
-            'merge_output_format': 'mp4'
-        })
-        target_ext = '.mp4'
+    elif "4. YouTube" in platform_mode:
+        # สูตร YouTube: 4K มาตรฐาน
+        cmd.extend(['-preset', 'faster'])
+        cmd.extend(['-crf', '20'])
+        filters.append('scale=3840:2160:flags=lanczos')
 
-    # จัดการ Cookies
-    if cookie_file is not None:
-        with open("temp_cookies.txt", "wb") as f:
-            f.write(cookie_file.getbuffer())
-        ydl_opts['cookiefile'] = "temp_cookies.txt"
+    elif "5. คลิปสั้น 4K" in platform_mode:
+        # สูตรใหม่: คลิปสั้น 4K (เน้นคุณภาพมากกว่าความเร็ว)
+        # ใช้ Medium เพื่อให้ภาพเนียนกว่า Faster
+        cmd.extend(['-preset', 'medium'])
+        # CRF 18 คือชัดมาก (ต่ำกว่านี้ไฟล์จะใหญ่เกินจำเป็น)
+        cmd.extend(['-crf', '18'])
+        # Upscale เป็น 4K ด้วย Algorithm ที่ดีที่สุด (Lanczos)
+        filters.append('scale=3840:2160:flags=lanczos')
+        # บังคับ 60fps เพื่อความลื่นไหลแบบงานพรีเมียม
+        filters.append('fps=60')
 
-    # เริ่มปฏิบัติการ
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            status_text = st.empty() # สร้างกล่องข้อความสถานะ
-            status_text.info(f"⏳ กำลังดำเนินการ... ({q_mode})")
-            
-            info = ydl.extract_info(link, download=True)
-            filename = ydl.prepare_filename(info)
-            
-            # ปรับนามสกุลไฟล์ให้ตรงกับความเป็นจริง (โดยเฉพาะ MP3)
-            base, ext = os.path.splitext(filename)
-            final_filename = base + target_ext
-            
-            # กรณีที่เป็น MP3 ชื่อไฟล์จาก prepare_filename อาจยังไม่เปลี่ยน เราต้องเดาชื่อใหม่
-            if type_mode == "🎵 เพลง/เสียงอย่างเดียว (MP3)":
-                if os.path.exists(final_filename):
-                    return final_filename
-                else:
-                    # บางที ffmpeg ยังทำงานไม่เสร็จ รอแป๊บนึง
-                    time.sleep(1)
-                    return final_filename if os.path.exists(final_filename) else filename
-            
-            # กรณี Video
-            if ext != target_ext and target_ext == '.mp4':
-                 return base + '.mp4'
-                 
-            return filename
-            
-    except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาด: {e}")
-        return None
+    # --- จบ LOGIC ---
 
-# --- ปุ่มกดสั่งงาน ---
-if st.button("🚀 เริ่มดาวน์โหลดเดี๋ยวนี้", use_container_width=True):
-    if url:
-        file_path = download_master(url, download_type, quality_mode, uploaded_cookies)
+    # ใส่ Filter (ถ้ามี)
+    if filters:
+        cmd.extend(['-vf', ','.join(filters)])
         
-        if file_path and os.path.exists(file_path):
-            st.success("✅ สำเร็จ! ไฟล์มารอแล้วครับ")
-            
-            file_name_only = os.path.basename(file_path)
-            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-            
-            st.info(f"📦 ไฟล์: {file_name_only} | ขนาด: {file_size_mb:.2f} MB")
-            
-            # กำหนด MIME Type ให้ถูกต้อง เพื่อให้มือถือไม่งง
-            mime_type = "audio/mpeg" if download_type == "🎵 เพลง/เสียงอย่างเดียว (MP3)" else "video/mp4"
-            
-            with open(file_path, "rb") as file:
-                btn = st.download_button(
-                    label=f"📥 แตะเพื่อบันทึก ({file_name_only})",
-                    data=file,
-                    file_name=file_name_only,
-                    mime=mime_type,
-                    use_container_width=True
-                )
-            
-            # เคลียร์ขยะ
-            if os.path.exists("temp_cookies.txt"):
-                os.remove("temp_cookies.txt")
-    else:
-        st.warning("⚠️ กรุณาวางลิงก์ก่อนครับ")
+    # ตั้งค่าเสียงและ Output สุดท้าย
+    cmd.extend(['-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', '-pix_fmt', 'yuv420p', '-y', output_file])
+    
+    # รันคำสั่ง
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate()
+    
+    if process.returncode != 0:
+        raise Exception(f"FFmpeg Error: {stderr.decode()}")
+
+# --- 5. ปุ่มกดสั่งงาน ---
+if uploaded_file:
+    file_size_mb = uploaded_file.size / (1024 * 1024)
+    st.info(f"📹 ต้นฉบับ: {uploaded_file.name} ({file_size_mb:.2f} MB)")
+    
+    if st.button("🚀 เริ่มแปลงไฟล์", use_container_width=True):
+        
+        input_path = f"temp_in_{uploaded_file.name}"
+        output_filename = f"Smart_{mode.split(' ')[1]}_{uploaded_file.name}"
+        output_path = f"output_{output_filename}"
+        
+        # Save Input
+        with open(input_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+
+        try:
+            with st.spinner('⏳ กำลังประมวลผล... (โหมด 4K จะใช้เวลานานหน่อยนะครับ)'):
+                start_time = time.time()
+                
+                # เรียกฟังก์ชันทำงาน
+                process_video_ultimate(input_path, output_path, mode)
+                
+                end_time = time.time()
+                
+                st.success(f"✅ เสร็จเรียบร้อย! (ใช้เวลา {end_time - start_time:.2f} วินาที)")
+                
+                if os.path.exists(output_path):
+                    new_size = os.path.getsize(output_path) / (1024 * 1024)
+                    st.caption(f"📦 ขนาดไฟล์ใหม่: {new_size:.2f} MB")
+                    
+                    with open(output_path, "rb") as f:
+                        st.download_button(
+                            label="📥 ดาวน์โหลดไฟล์",
+                            data=f,
+                            file_name=output_filename,
+                            mime="video/mp4",
+                            use_container_width=True
+                        )
+                    # ลบไฟล์ทิ้ง
+                    os.remove(output_path)
+                    
+        except Exception as e:
+            st.error(f"❌ เกิดข้อผิดพลาด: {e}")
+        finally:
+            if os.path.exists(input_path): os.remove(input_path)
